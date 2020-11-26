@@ -66,10 +66,25 @@ Class PSSQLObject {
     # Standardized Query
     [Array]Query([string]$Query) {
         if($this.Credentials -eq $null) {
-            return Invoke-Sqlcmd -Query $Query -ServerInstance $this.Server -Database $this.Database
+            $rows = Invoke-Sqlcmd -Query $Query -ServerInstance $this.Server -Database $this.Database
         } else {
-            return Invoke-Sqlcmd -Query $Query -ServerInstance $this.Server -Database $this.Database -Credential $this.Credentials
+            $rows = Invoke-Sqlcmd -Query $Query -ServerInstance $this.Server -Database $this.Database -Credential $this.Credentials
         }
+        
+        # Replace Key Column values with PSSQLLink
+        $relatives = $this.Relations | Where-Object {$_.LINK_TABLE -eq $t}
+        foreach ($r in $rows) {
+            $relatives | Foreach {
+                $rel = $null
+                if (-not ([string]::IsNullOrEmpty($r.($_.LINK_COLUMN)))) {
+                    $rel = [PSSQLLink]::new([ref]$this, [ref]$_, $r.($_.LINK_COLUMN))
+                }
+                $r.PSObject.Properties.Remove($_.LINK_COLUMN)
+                $r | Add-Member -MemberType NoteProperty -Name $_.LINK_COLUMN -Value $rel -Force
+            }
+        }
+
+        return $rows
     }
     
     # Cache Results from the Standardized Query
@@ -108,19 +123,6 @@ Class PSSQLObject {
             
             # Run the query
             $rows = $this.Query($query)
-            
-            # Replace Key Column values with PSSQLLink
-            $relatives = $this.Relations | Where-Object {$_.LINK_TABLE -eq $t}
-            foreach ($r in $rows) {
-                $relatives | Foreach {
-                    $rel = $null
-                    if (-not ([string]::IsNullOrEmpty($r.($_.LINK_COLUMN)))) {
-                        $rel = [PSSQLLink]::new([ref]$this, [ref]$_, $r.($_.LINK_COLUMN))
-                    }
-                    $r.PSObject.Properties.Remove($_.LINK_COLUMN)
-                    $r | Add-Member -MemberType NoteProperty -Name $_.LINK_COLUMN -Value $rel -Force
-                }
-            }
             
             # Cache logisitcs
             if ($this.Tables.PSObject.Properties.Name -contains $t -and -not ([string]::IsNullOrEmpty($Value))) {
